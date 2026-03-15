@@ -1,28 +1,17 @@
-"""
-╔══════════════════════════════════════════════╗
-║         WORKER TEAM BOT — ALL IN ONE         ║
-║         aiogram 3.x + aiosqlite              ║
-╚══════════════════════════════════════════════╝
-
-pip install aiogram==3.7.0 aiosqlite==0.20.0
-python worker_bot_single.py
-
-НОВОЕ v2:
-  • Каждый трафер получает уникальную invite-ссылку на группу через Bot API
-    (create_chat_invite_link). Когда его реферал принят — ему приходит
-    именно эта ссылка от трафера, а не общий GROUP_LINK.
-  • Трафер получает уведомление когда его реферал принят.
-  • /admin  — панель управления с кнопками
-  • /resettop / /resetcash — обнулить кассу (воркеры остаются)
-  • /cleartop  — полностью удалить всех воркеров (через подтверждение)
-  • Кнопки «Обнулить кассу» и «Очистить топ» прямо в /admin
-"""
+# ╔══════════════════════════════════════════════════════════╗
+# ║            WORKER TEAM BOT  —  ALL IN ONE               ║
+# ║            aiogram 3.x  +  aiosqlite                    ║
+# ╠══════════════════════════════════════════════════════════╣
+# ║  Установка:  pip install aiogram==3.7.0 aiosqlite        ║
+# ║  Запуск:     python worker_bot_single.py                 ║
+# ╚══════════════════════════════════════════════════════════╝
 
 import asyncio
 import logging
 import aiosqlite
 from datetime import datetime
 from aiogram import Bot, Dispatcher, Router, F
+from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -33,26 +22,30 @@ from aiogram.types import (
     InputMediaPhoto
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%H:%M:%S"
+)
 logger = logging.getLogger(__name__)
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  ⚙️  КОНФИГУРАЦИЯ
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   ⚙️  КОНФИГУРАЦИЯ  —  заполни перед запуском
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-BOT_TOKEN      = "8384235923:AAE41DUjvsfumFr3ttMOeIOLzTEHKLDQDko"
-ADMIN_IDS      = [8418455492]          # Telegram ID администраторов
-LOG_GROUP_ID   = -1003870818645       # ID группы для логов выплат
-INVITE_CHAT_ID = -1003870818645       # ID группы куда приглашать новичков
-                                       # Бот должен быть админом этой группы!
-COMMISSION_PCT = 25                   # % комиссии (меняется через /setcommission)
-GROUP_LINK     = "https://t.me/c/3870818645/5"   # запасная ссылка
-BOT_USERNAME   = "KwerPanelBot"  # без @
-DB_PATH        = "workers.db"
+BOT_TOKEN      = "YOUR_BOT_TOKEN_HERE"       # токен от @BotFather
+ADMIN_IDS      = [123456789]                 # список Telegram ID администраторов
+LOG_GROUP_ID   = -1003870818645              # ID группы для логов успешных выплат
+INVITE_CHAT_ID = -1003870818645              # ID группы куда приглашать воркеров
+                                             # (бот должен быть администратором!)
+COMMISSION_PCT = 25                          # % комиссии команды  (меняется через /setcommission)
+GROUP_LINK     = "https://t.me/c/3870818645/5"  # запасная ссылка если Bot API недоступен
+BOT_USERNAME   = "KwerPanelBot"         # username бота БЕЗ @
+DB_PATH        = "workers.db"               # файл базы данных SQLite
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  🎭  ПРЕМИУМ СТИКЕРЫ
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   🎭  ПРЕМИУМ ЭМОДЗИ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 E = {
     "handshake": '<tg-emoji emoji-id="5395732581780040886">🤝</tg-emoji>',
@@ -77,9 +70,9 @@ E = {
     "timer":     '<tg-emoji emoji-id="5382194935057372936">⏱️</tg-emoji>',
 }
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  🗄️  БАЗА ДАННЫХ
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   🗄️  БАЗА ДАННЫХ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -129,7 +122,7 @@ async def init_db():
                 created_at  TEXT
             );
         """)
-        # Миграция: добавить столбцы если их нет (для старых БД)
+        # Миграция для старых баз — добавляем новые поля если их нет
         for col, typ in [
             ("bot_ref_link", "TEXT"),
             ("group_invite",  "TEXT"),
@@ -141,15 +134,15 @@ async def init_db():
                 pass
         await db.commit()
 
-# ── Workers ────────────────────────────────────────
+# ── Workers ───────────────────────────────────────────────
 
-async def db_get_worker(uid):
+async def db_get_worker(uid: int):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM workers WHERE user_id=?", (uid,)) as c:
             return await c.fetchone()
 
-async def db_add_worker(uid, username, full_name, referred_by=None):
+async def db_add_worker(uid: int, username: str, full_name: str, referred_by=None):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT OR IGNORE INTO workers "
@@ -159,7 +152,7 @@ async def db_add_worker(uid, username, full_name, referred_by=None):
         )
         await db.commit()
 
-async def db_save_links(uid, bot_ref_link, group_invite):
+async def db_save_links(uid: int, bot_ref_link: str, group_invite: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "UPDATE workers SET bot_ref_link=?, group_invite=? WHERE user_id=?",
@@ -167,8 +160,8 @@ async def db_save_links(uid, bot_ref_link, group_invite):
         )
         await db.commit()
 
-async def db_add_profit(uid, worker_profit, sale_amount):
-    """Добавляет профит воркеру и полную сумму продажи в кассу."""
+async def db_add_profit(uid: int, worker_profit: float, sale_amount: float):
+    """Записывает профит воркера и полную сумму продажи NFT (для кассы)."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "UPDATE workers SET total_earned=total_earned+?, total_sale=total_sale+? WHERE user_id=?",
@@ -176,7 +169,7 @@ async def db_add_profit(uid, worker_profit, sale_amount):
         )
         await db.commit()
 
-async def db_top_workers(limit=10):
+async def db_top_workers(limit: int = 10):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -184,21 +177,21 @@ async def db_top_workers(limit=10):
         ) as c:
             return await c.fetchall()
 
-async def db_team_total():
-    """Касса = полная сумма всех продаж NFT (до вычета комиссии)."""
+async def db_team_total() -> float:
+    """Касса = сумма всех продаж NFT (полная, до вычета комиссии)."""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT SUM(total_sale) FROM workers WHERE is_approved=1") as c:
             r = await c.fetchone()
             return r[0] or 0.0
 
-async def db_team_earned():
-    """Суммарный профит воркеров (после вычета комиссии)."""
+async def db_team_earned() -> float:
+    """Суммарный профит воркеров после вычета комиссии."""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT SUM(total_earned) FROM workers WHERE is_approved=1") as c:
             r = await c.fetchone()
             return r[0] or 0.0
 
-async def db_ref_count(uid):
+async def db_ref_count(uid: int) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT COUNT(*) FROM workers WHERE referred_by=? AND is_approved=1", (uid,)
@@ -206,25 +199,25 @@ async def db_ref_count(uid):
             r = await c.fetchone()
             return r[0]
 
-async def db_workers_count():
+async def db_workers_count() -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT COUNT(*) FROM workers WHERE is_approved=1") as c:
             r = await c.fetchone()
             return r[0]
 
 async def db_reset_earnings():
-    """Обнулить заработок и кассу всех воркеров (воркеры остаются)."""
+    """Обнулить кассу и заработок всех воркеров (воркеры остаются)."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE workers SET total_earned=0, total_sale=0")
         await db.commit()
 
 async def db_clear_workers():
-    """Полностью удалить всех воркеров."""
+    """Полностью удалить всех воркеров из базы."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM workers")
         await db.commit()
 
-# ── Payouts ────────────────────────────────────────
+# ── Payouts ───────────────────────────────────────────────
 
 async def db_create_payout(worker_id, deal_code, nft_links, wallet, screenshots, commission_pct):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -238,13 +231,13 @@ async def db_create_payout(worker_id, deal_code, nft_links, wallet, screenshots,
         await db.commit()
         return c.lastrowid
 
-async def db_get_payout(pid):
+async def db_get_payout(pid: int):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM payouts WHERE id=?", (pid,)) as c:
             return await c.fetchone()
 
-async def db_set_payout_price(pid, sale_price, profit):
+async def db_set_payout_price(pid: int, sale_price: float, profit: float):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "UPDATE payouts SET nft_sale_price=?,worker_profit=? WHERE id=?",
@@ -252,7 +245,7 @@ async def db_set_payout_price(pid, sale_price, profit):
         )
         await db.commit()
 
-async def db_complete_payout(pid):
+async def db_complete_payout(pid: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "UPDATE payouts SET status='completed',completed_at=? WHERE id=?",
@@ -260,32 +253,32 @@ async def db_complete_payout(pid):
         )
         await db.commit()
 
-# ── Applications ───────────────────────────────────
+# ── Applications ──────────────────────────────────────────
 
 async def db_create_app(uid, username, full_name, has_exp, hours, how_found, referred_by=None):
     async with aiosqlite.connect(DB_PATH) as db:
         c = await db.execute(
             "INSERT INTO applications "
-            "(user_id,username,full_name,has_experience,work_hours,how_found,referred_by,status,created_at) "
-            "VALUES(?,?,?,?,?,?,?,'pending',?)",
+            "(user_id,username,full_name,has_experience,work_hours,how_found,"
+            "referred_by,status,created_at) VALUES(?,?,?,?,?,?,?,'pending',?)",
             (uid, username, full_name, has_exp, hours, how_found, referred_by,
              datetime.now().isoformat())
         )
         await db.commit()
         return c.lastrowid
 
-async def db_get_app(aid):
+async def db_get_app(aid: int):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM applications WHERE id=?", (aid,)) as c:
             return await c.fetchone()
 
-async def db_update_app(aid, status):
+async def db_update_app(aid: int, status: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE applications SET status=? WHERE id=?", (status, aid))
         await db.commit()
 
-async def db_pending_app(uid):
+async def db_pending_app(uid: int):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -293,9 +286,9 @@ async def db_pending_app(uid):
         ) as c:
             return await c.fetchone()
 
-# ── Referrals ──────────────────────────────────────
+# ── Referrals ─────────────────────────────────────────────
 
-async def db_add_referral(referrer_id, referred_id):
+async def db_add_referral(referrer_id: int, referred_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO referrals (referrer_id,referred_id,created_at) VALUES(?,?,?)",
@@ -303,31 +296,30 @@ async def db_add_referral(referrer_id, referred_id):
         )
         await db.commit()
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  🔗  СОЗДАНИЕ ПЕРСОНАЛЬНОЙ INVITE-ССЫЛКИ ТРАФЕРА
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   🔗  ПЕРСОНАЛЬНАЯ INVITE-ССЫЛКА ТРАФЕРА
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def make_group_invite(bot: Bot, uid: int, name: str) -> str:
     """
-    Создаёт уникальную invite-ссылку для трафера через Bot API.
-    Требует: бот является администратором INVITE_CHAT_ID
-             с правом 'Пригласительные ссылки'.
-    При ошибке — возвращает общий GROUP_LINK.
+    Создаёт уникальную invite-ссылку для трафера через Telegram Bot API.
+    Бот обязан быть администратором INVITE_CHAT_ID с правом создавать ссылки.
+    При ошибке возвращает запасной GROUP_LINK.
     """
     try:
         result = await bot.create_chat_invite_link(
-            chat_id=INVITE_CHAT_ID,
+            chat_id=int(INVITE_CHAT_ID),
             name=f"Трафер {name} [id{uid}]",
-            creates_join_request=False,   # False = сразу вступает, True = заявка
+            creates_join_request=False,
         )
         return result.invite_link
     except Exception as e:
-        logger.warning(f"[invite] Не удалось создать ссылку для {uid}: {e}")
+        logger.warning(f"[invite] Не удалось создать ссылку для uid={uid}: {e}")
         return GROUP_LINK
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  🎹  КЛАВИАТУРЫ
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   🎹  КЛАВИАТУРЫ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def kb_main():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -338,7 +330,7 @@ def kb_main():
         [
             InlineKeyboardButton(text="🏆 Топ воркеров", callback_data="top"),
             InlineKeyboardButton(text="🔗 Реферал",      callback_data="referral"),
-        ]
+        ],
     ])
 
 def kb_experience():
@@ -349,27 +341,10 @@ def kb_experience():
 
 def kb_back():
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu"),
     ]])
 
-def kb_admin_app(aid):
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Принять",   callback_data=f"app_accept_{aid}"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"app_reject_{aid}"),
-    ]])
-
-def kb_admin_payout(pid):
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="💰 Указать сумму продажи", callback_data=f"set_price_{pid}")
-    ]])
-
-def kb_admin_confirm(pid):
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Подтвердить выплату", callback_data=f"confirm_pay_{pid}"),
-        InlineKeyboardButton(text="❌ Отмена",              callback_data=f"cancel_pay_{pid}"),
-    ]])
-
-def kb_screenshots_next():
+def kb_screens_next():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➡️ Далее",        callback_data="screens_done")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")],
@@ -381,6 +356,23 @@ def kb_payout_confirm():
         [InlineKeyboardButton(text="🏠 Главное меню",     callback_data="main_menu")],
     ])
 
+def kb_admin_app(aid: int):
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Принять",   callback_data=f"app_accept_{aid}"),
+        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"app_reject_{aid}"),
+    ]])
+
+def kb_admin_payout(pid: int):
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="💰 Указать сумму продажи", callback_data=f"set_price_{pid}"),
+    ]])
+
+def kb_admin_confirm(pid: int):
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Подтвердить выплату", callback_data=f"confirm_pay_{pid}"),
+        InlineKeyboardButton(text="❌ Отмена",              callback_data=f"cancel_pay_{pid}"),
+    ]])
+
 def kb_admin_panel():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статистика команды",    callback_data="adm_stats")],
@@ -391,8 +383,8 @@ def kb_admin_panel():
 
 def kb_reset_confirm():
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Да, обнулить", callback_data="adm_reset_do"),
-        InlineKeyboardButton(text="❌ Отмена",        callback_data="adm_back"),
+        InlineKeyboardButton(text="✅ Да, обнулить",  callback_data="adm_reset_do"),
+        InlineKeyboardButton(text="❌ Отмена",         callback_data="adm_back"),
     ]])
 
 def kb_clear_confirm():
@@ -403,12 +395,12 @@ def kb_clear_confirm():
 
 def kb_adm_back():
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="◀️ Назад в панель", callback_data="adm_back")
+        InlineKeyboardButton(text="◀️ Назад в панель", callback_data="adm_back"),
     ]])
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  📐  FSM СОСТОЯНИЯ
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   📐  FSM СОСТОЯНИЯ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class AppState(StatesGroup):
     exp    = State()
@@ -424,30 +416,51 @@ class PayState(StatesGroup):
 class AdminPayState(StatesGroup):
     price = State()
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  🛠️  ХЕЛПЕРЫ
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-def is_admin(uid): return uid in ADMIN_IDS
-
-async def safe_send(bot, uid, **kwargs):
-    try:
-        await bot.send_message(uid, **kwargs)
-    except Exception:
-        pass
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   🛠️  ХЕЛПЕРЫ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 MEDALS = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  🚀  ХЭНДЛЕРЫ
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def is_admin(uid: int) -> bool:
+    return uid in ADMIN_IDS
+
+async def safe_send(bot: Bot, uid: int, **kwargs):
+    try:
+        await bot.send_message(uid, **kwargs)
+    except Exception as e:
+        logger.debug(f"safe_send to {uid} failed: {e}")
+
+async def _stats_text() -> str:
+    top    = await db_top_workers(10)
+    total  = await db_team_total()
+    earned = await db_team_earned()
+    count  = await db_workers_count()
+    lines  = "\n".join(
+        f"{MEDALS[i] if i < len(MEDALS) else i+1}. "
+        f"{w['full_name'] or '?'}"
+        + (f" (@{w['username']})" if w["username"] else "")
+        + f"  —  {w['total_earned']:.4f} TON"
+        for i, w in enumerate(top)
+    ) or "Пока нет данных"
+    return (
+        f'{E["chart"]} <b>Статистика команды</b>\n\n'
+        f'{E["dollar"]} Касса (оборот):         <b>{total:.4f} TON</b>\n'
+        f'{E["coin"]}  Выплачено воркерам: <b>{earned:.4f} TON</b>\n'
+        f'👥 Воркеров в команде: <b>{count}</b>\n\n'
+        f'<b>Топ по профиту:</b>\n{lines}'
+    )
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   🚀  ХЭНДЛЕРЫ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 router = Router()
 
-# ─── /start ──────────────────────────────────────
+# ─── /start ─────────────────────────────────────────────
 
 @router.message(CommandStart())
-async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
+async def cmd_start(msg: Message, state: FSMContext):
     uid  = msg.from_user.id
     args = msg.text.split()
     ref  = None
@@ -462,15 +475,15 @@ async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
         await msg.answer(
             f'{E["wave"]} <b>С возвращением, {msg.from_user.first_name}!</b>\n\n'
             f'{E["down"]} Выбери действие:',
-            reply_markup=kb_main(), parse_mode="HTML"
+            reply_markup=kb_main()
         )
         return
 
     pending = await db_pending_app(uid)
     if pending:
         await msg.answer(
-            f'{E["timer"]} <b>Заявка уже на рассмотрении.</b>\n\nОжидай решения администрации.',
-            parse_mode="HTML"
+            f'{E["timer"]} <b>Заявка уже на рассмотрении.</b>\n\n'
+            f'Ожидай решения администрации.'
         )
         return
 
@@ -479,22 +492,21 @@ async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
         f'{E["wave"]} <b>Добро пожаловать!</b>\n\n'
         f'{E["shield"]} Для доступа нужно пройти короткую анкету.\n\n'
         f'{E["question"]} <b>Вопрос 1/3:</b> Есть ли у тебя опыт в скаме?',
-        reply_markup=kb_experience(), parse_mode="HTML"
+        reply_markup=kb_experience()
     )
     await state.set_state(AppState.exp)
 
-# ─── Анкета ───────────────────────────────────────
+# ─── Анкета ─────────────────────────────────────────────
 
 @router.callback_query(AppState.exp, F.data.in_(["exp_yes", "exp_no"]))
 async def app_exp(cb: CallbackQuery, state: FSMContext):
-    has = 1 if cb.data == "exp_yes" else 0
-    await state.update_data(has_exp=has)
+    has   = 1 if cb.data == "exp_yes" else 0
     label = f'{E["check"]} Да' if has else f'{E["cross"]} Нет'
+    await state.update_data(has_exp=has)
     await cb.message.edit_text(
         f'{E["question"]} <b>Вопрос 1/3:</b> Опыт в скаме → {label}\n\n'
         f'{E["timer"]} <b>Вопрос 2/3:</b> Сколько часов в день готов уделять работе?\n'
-        f'<i>Напиши число (например: 4)</i>',
-        parse_mode="HTML"
+        f'<i>Напиши число, например: 4</i>'
     )
     await state.set_state(AppState.hours)
 
@@ -502,16 +514,13 @@ async def app_exp(cb: CallbackQuery, state: FSMContext):
 async def app_hours(msg: Message, state: FSMContext):
     h = msg.text.strip()
     if not h.replace(".", "").isdigit():
-        await msg.answer(
-            f'{E["warn"]} Напиши число часов. Например: <b>4</b>', parse_mode="HTML"
-        )
+        await msg.answer(f'{E["warn"]} Напиши число часов, например: <b>4</b>')
         return
     await state.update_data(hours=h)
     await msg.answer(
         f'{E["timer"]} Часов в день: <b>{h}</b>\n\n'
         f'{E["question"]} <b>Вопрос 3/3:</b> Откуда узнал о нас?\n'
-        f'<i>Напиши в свободной форме</i>',
-        parse_mode="HTML"
+        f'<i>Напиши в свободной форме</i>'
     )
     await state.set_state(AppState.found)
 
@@ -519,7 +528,7 @@ async def app_hours(msg: Message, state: FSMContext):
 async def app_found(msg: Message, state: FSMContext, bot: Bot):
     d    = await state.get_data()
     user = msg.from_user
-    un   = f"@{user.username}" if user.username else "нет"
+    un   = f"@{user.username}" if user.username else "нет username"
 
     aid = await db_create_app(
         uid=user.id, username=user.username or "",
@@ -531,37 +540,36 @@ async def app_found(msg: Message, state: FSMContext, bot: Bot):
     exp_label = f'{E["check"]} Да' if d.get("has_exp") else f'{E["cross"]} Нет'
     admin_txt = (
         f'{E["bell"]} <b>Новая заявка #{aid}</b>\n\n'
-        f'👤 {user.full_name} ({un})\n'
+        f'👤 {user.full_name}  ({un})\n'
         f'🆔 <code>{user.id}</code>\n\n'
-        f'1️⃣ Опыт в скаме: {exp_label}\n'
-        f'2️⃣ Часов в день: {d.get("hours")}\n'
-        f'3️⃣ Откуда: {msg.text.strip()}\n'
+        f'1️⃣ Опыт в скаме:  {exp_label}\n'
+        f'2️⃣ Часов в день:  {d.get("hours")}\n'
+        f'3️⃣ Откуда узнал:  {msg.text.strip()}\n'
     )
     if d.get("ref"):
-        admin_txt += f'{E["handshake"]} Реферал от: <code>{d["ref"]}</code>\n'
+        admin_txt += f'\n{E["handshake"]} Реферал от: <code>{d["ref"]}</code>'
 
     for adm in ADMIN_IDS:
         await safe_send(bot, adm, text=admin_txt,
-                        reply_markup=kb_admin_app(aid), parse_mode="HTML")
+                        reply_markup=kb_admin_app(aid))
 
     await msg.answer(
         f'{E["check"]} <b>Заявка отправлена!</b>\n\n'
         f'{E["timer"]} Ожидай решения администрации.\n'
-        f'Бот уведомит тебя как только заявку рассмотрят.',
-        parse_mode="HTML"
+        f'Бот уведомит тебя о результате.'
     )
     await state.clear()
 
-# ─── Главное меню ─────────────────────────────────
+# ─── Главное меню ────────────────────────────────────────
 
 @router.callback_query(F.data == "main_menu")
 async def main_menu(cb: CallbackQuery):
     await cb.message.edit_text(
         f'{E["globe"]} <b>Главное меню</b>\n\n{E["down"]} Выбери действие:',
-        reply_markup=kb_main(), parse_mode="HTML"
+        reply_markup=kb_main()
     )
 
-# ─── Профиль ──────────────────────────────────────
+# ─── Профиль ─────────────────────────────────────────────
 
 @router.callback_query(F.data == "profile")
 async def profile(cb: CallbackQuery):
@@ -581,12 +589,12 @@ async def profile(cb: CallbackQuery):
         f'🔖 Username: {un}\n'
         f'🆔 ID: <code>{cb.from_user.id}</code>\n\n'
         f'{E["timer"]} Дней в команде: <b>{days}</b>\n'
-        f'{E["coin"]} Заработано: <b>{earned:.4f} TON</b>\n'
-        f'{E["handshake"]} Рефералов: <b>{refs}</b>\n',
-        reply_markup=kb_back(), parse_mode="HTML"
+        f'{E["coin"]} Заработано:       <b>{earned:.4f} TON</b>\n'
+        f'{E["handshake"]} Рефералов:   <b>{refs}</b>',
+        reply_markup=kb_back()
     )
 
-# ─── Выплата ──────────────────────────────────────
+# ─── Выплата ─────────────────────────────────────────────
 
 @router.callback_query(F.data == "payout")
 async def payout_start(cb: CallbackQuery, state: FSMContext):
@@ -594,13 +602,13 @@ async def payout_start(cb: CallbackQuery, state: FSMContext):
     if not w or not w["is_approved"]:
         await cb.answer("❌ Нет доступа.", show_alert=True)
         return
+    await state.update_data(screens=[])
     await cb.message.edit_text(
         f'{E["dollar"]} <b>Заявка на выплату</b>\n\n'
-        f'{E["cart"]} <b>Шаг 1/4.</b> Введи код сделки:\n'
+        f'{E["cart"]} <b>Шаг 1/4.</b>  Введи код сделки:\n'
         f'Формат: <code>#КОД</code>\n\n<i>Пример: #ABC123</i>',
-        reply_markup=kb_back(), parse_mode="HTML"
+        reply_markup=kb_back()
     )
-    await state.update_data(screens=[])
     await state.set_state(PayState.code)
 
 @router.message(PayState.code)
@@ -608,16 +616,15 @@ async def payout_code(msg: Message, state: FSMContext):
     code = msg.text.strip()
     if not code.startswith("#"):
         await msg.answer(
-            f'{E["warn"]} Код должен начинаться с <b>#</b>\n<i>Пример: #ABC123</i>',
-            parse_mode="HTML"
+            f'{E["warn"]} Код должен начинаться с <b>#</b>\n<i>Пример: #ABC123</i>'
         )
         return
     await state.update_data(code=code)
     await msg.answer(
         f'{E["check"]} Код: <code>{code}</code>\n\n'
-        f'{E["cart"]} <b>Шаг 2/4.</b> Отправь скриншоты сделки.\n'
-        f'<i>Можно несколько. Когда закончишь — жми «Далее»</i>',
-        reply_markup=kb_screenshots_next(), parse_mode="HTML"
+        f'{E["cart"]} <b>Шаг 2/4.</b>  Отправь скриншоты сделки.\n'
+        f'<i>Можно несколько фото. Когда закончишь — нажми «Далее»</i>',
+        reply_markup=kb_screens_next()
     )
     await state.set_state(PayState.screens)
 
@@ -628,8 +635,9 @@ async def payout_screenshot(msg: Message, state: FSMContext):
     screens.append(msg.photo[-1].file_id)
     await state.update_data(screens=screens)
     await msg.answer(
-        f'📸 Скриншот <b>#{len(screens)}</b> добавлен. Отправляй ещё или жми <b>«Далее»</b>.',
-        reply_markup=kb_screenshots_next(), parse_mode="HTML"
+        f'📸 Скриншот <b>#{len(screens)}</b> добавлен.\n'
+        f'Отправляй ещё или нажми <b>«Далее»</b>.',
+        reply_markup=kb_screens_next()
     )
 
 @router.callback_query(PayState.screens, F.data == "screens_done")
@@ -640,10 +648,11 @@ async def payout_screens_done(cb: CallbackQuery, state: FSMContext):
         return
     await cb.message.edit_text(
         f'{E["check"]} Скриншотов добавлено: <b>{len(d["screens"])}</b>\n\n'
-        f'{E["cart"]} <b>Шаг 3/4.</b> Отправь NFT ссылки.\n'
-        f'<i>Каждая с новой строки:</i>\n\n'
-        f'https://getgems.io/nft/abc\nhttps://getgems.io/nft/xyz',
-        reply_markup=kb_back(), parse_mode="HTML"
+        f'{E["cart"]} <b>Шаг 3/4.</b>  Отправь NFT-ссылки.\n'
+        f'<i>Каждая ссылка с новой строки:</i>\n\n'
+        f'https://getgems.io/nft/abc\n'
+        f'https://getgems.io/nft/xyz',
+        reply_markup=kb_back()
     )
     await state.set_state(PayState.nft)
 
@@ -651,31 +660,31 @@ async def payout_screens_done(cb: CallbackQuery, state: FSMContext):
 async def payout_nft(msg: Message, state: FSMContext):
     links = [l.strip() for l in msg.text.strip().split("\n") if l.strip()]
     if not links:
-        await msg.answer(f'{E["warn"]} Отправь хотя бы одну ссылку.', parse_mode="HTML")
+        await msg.answer(f'{E["warn"]} Отправь хотя бы одну ссылку.')
         return
     await state.update_data(nft="\n".join(links))
     preview = "\n".join(f"• {l}" for l in links)
     await msg.answer(
-        f'{E["check"]} NFT ссылок: <b>{len(links)}</b>\n{preview}\n\n'
-        f'{E["cart"]} <b>Шаг 4/4.</b> Введи адрес кошелька или @username для выплаты:',
-        reply_markup=kb_back(), parse_mode="HTML"
+        f'{E["check"]} NFT-ссылок: <b>{len(links)}</b>\n{preview}\n\n'
+        f'{E["cart"]} <b>Шаг 4/4.</b>  Введи адрес кошелька или @username для выплаты:',
+        reply_markup=kb_back()
     )
     await state.set_state(PayState.wallet)
 
 @router.message(PayState.wallet)
 async def payout_wallet(msg: Message, state: FSMContext):
     await state.update_data(wallet=msg.text.strip())
-    d = await state.get_data()
+    d     = await state.get_data()
     links = [l for l in d["nft"].split("\n") if l]
     preview = "\n".join(f"• {l}" for l in links)
     await msg.answer(
-        f'{E["bulb"]} <b>Проверь заявку:</b>\n\n'
+        f'{E["bulb"]} <b>Проверь заявку перед отправкой:</b>\n\n'
         f'🔖 Код: <code>{d["code"]}</code>\n'
         f'📸 Скриншотов: {len(d["screens"])}\n'
-        f'🖼 NFT ({len(links)}):\n{preview}\n\n'
-        f'{E["card"]} Кошелек: <code>{d["wallet"]}</code>\n\n'
+        f'🖼 NFT ({len(links)} шт.):\n{preview}\n\n'
+        f'{E["card"]} Кошелёк: <code>{d["wallet"]}</code>\n\n'
         f'<i>{E["coin2"]} Выплата: {100 - COMMISSION_PCT}% от суммы продажи</i>',
-        reply_markup=kb_payout_confirm(), parse_mode="HTML"
+        reply_markup=kb_payout_confirm()
     )
 
 @router.callback_query(PayState.wallet, F.data == "payout_submit")
@@ -683,7 +692,7 @@ async def payout_submit(cb: CallbackQuery, state: FSMContext, bot: Bot):
     d    = await state.get_data()
     user = cb.from_user
     if not d.get("code"):
-        await cb.answer("⚠️ Данные не найдены. Начни заново.", show_alert=True)
+        await cb.answer("⚠️ Данные сброшены. Начни заново.", show_alert=True)
         await state.clear()
         return
 
@@ -697,10 +706,10 @@ async def payout_submit(cb: CallbackQuery, state: FSMContext, bot: Bot):
     un  = f"@{user.username}" if user.username else user.full_name
     txt = (
         f'{E["bell"]} <b>Новая заявка на выплату #{pid}</b>\n\n'
-        f'👤 {user.full_name} ({un})\n'
+        f'👤 {user.full_name}  ({un})\n'
         f'🆔 <code>{user.id}</code>\n\n'
         f'🔖 Код: <code>{d["code"]}</code>\n'
-        f'{E["card"]} Кошелек: <code>{d["wallet"]}</code>\n'
+        f'{E["card"]} Кошелёк: <code>{d["wallet"]}</code>\n'
         f'📸 Скриншотов: {len(d.get("screens", []))}\n'
         f'🖼 NFT ссылки:\n{d["nft"]}\n\n'
         f'⚙️ Комиссия: {COMMISSION_PCT}%'
@@ -715,18 +724,19 @@ async def payout_submit(cb: CallbackQuery, state: FSMContext, bot: Bot):
                     media = [InputMediaPhoto(media=fid) for fid in screens]
                     media[0].caption = "📸 Скриншоты сделки"
                     await bot.send_media_group(adm, media)
-            await bot.send_message(adm, txt, reply_markup=kb_admin_payout(pid), parse_mode="HTML")
-        except Exception:
-            pass
+            await bot.send_message(adm, txt, reply_markup=kb_admin_payout(pid))
+        except Exception as e:
+            logger.error(f"Ошибка отправки заявки админу {adm}: {e}")
 
     await cb.message.edit_text(
         f'{E["check"]} <b>Заявка #{pid} отправлена!</b>\n\n'
-        f'{E["timer"]} Администратор рассмотрит её в ближайшее время.',
-        reply_markup=kb_back(), parse_mode="HTML"
+        f'{E["timer"]} Администратор рассмотрит её в ближайшее время.\n'
+        f'Ты получишь уведомление о выплате.',
+        reply_markup=kb_back()
     )
     await state.clear()
 
-# ─── Топ воркеров ─────────────────────────────────
+# ─── Топ воркеров ────────────────────────────────────────
 
 @router.callback_query(F.data == "top")
 async def top_workers(cb: CallbackQuery):
@@ -736,30 +746,30 @@ async def top_workers(cb: CallbackQuery):
         return
 
     top   = await db_top_workers(10)
-    total = await db_team_total()    # полная сумма продаж
+    total = await db_team_total()
 
     if not top:
         await cb.message.edit_text(
             f'{E["chart"]} <b>Топ воркеров</b>\n\nПока нет данных.',
-            reply_markup=kb_back(), parse_mode="HTML"
+            reply_markup=kb_back()
         )
         return
 
     lines = []
     for i, ww in enumerate(top):
-        m    = MEDALS[i] if i < len(MEDALS) else f"{i+1}."
-        name = ww["full_name"] or "?"
-        un   = f" (@{ww['username']})" if ww["username"] else ""
-        lines.append(f"{m} {name}{un} — <b>{ww['total_earned']:.4f} TON</b>")
+        m  = MEDALS[i] if i < len(MEDALS) else f"{i+1}."
+        nm = ww["full_name"] or "?"
+        un = f" (@{ww['username']})" if ww["username"] else ""
+        lines.append(f"{m} {nm}{un}  —  <b>{ww['total_earned']:.4f} TON</b>")
 
     await cb.message.edit_text(
         f'{E["chart"]} <b>Топ воркеров команды</b>\n\n'
-        f'{E["dollar"]} <b>Касса команды (оборот): {total:.4f} TON</b>\n\n'
+        f'{E["dollar"]} <b>Касса (оборот): {total:.4f} TON</b>\n\n'
         + "\n".join(lines),
-        reply_markup=kb_back(), parse_mode="HTML"
+        reply_markup=kb_back()
     )
 
-# ─── Реферал ──────────────────────────────────────
+# ─── Реферал ─────────────────────────────────────────────
 
 @router.callback_query(F.data == "referral")
 async def referral(cb: CallbackQuery):
@@ -768,27 +778,26 @@ async def referral(cb: CallbackQuery):
         await cb.answer("❌ Нет доступа.", show_alert=True)
         return
 
-    uid  = cb.from_user.id
-    refs = await db_ref_count(uid)
-    bot_link   = w["bot_ref_link"]   or f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
-    group_link = w["group_invite"]   or GROUP_LINK
+    uid        = cb.from_user.id
+    refs       = await db_ref_count(uid)
+    bot_link   = w["bot_ref_link"]  or f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
+    group_link = w["group_invite"]  or GROUP_LINK
 
     await cb.message.edit_text(
         f'{E["mega"]} <b>Реферальная программа</b>\n\n'
         f'{E["handshake"]} Приглашай людей по своим ссылкам!\n\n'
         f'{E["chart"]} Ты уже пригласил: <b>{refs} чел.</b>\n\n'
-        f'{E["globe"]} <b>Ссылка на анкету (через бот):</b>\n'
+        f'{E["globe"]} <b>Ссылка на анкету (бот):</b>\n'
         f'<code>{bot_link}</code>\n\n'
         f'{E["shield"]} <b>Твоя личная ссылка на группу:</b>\n'
         f'<code>{group_link}</code>\n\n'
-        f'<i>{E["bulb"]} Каждый приглашённый привязан к тебе — '
-        f'ты видишь в профиле сколько людей привёл.</i>',
-        reply_markup=kb_back(), parse_mode="HTML"
+        f'<i>{E["bulb"]} Каждый приглашённый привязан к тебе.</i>',
+        reply_markup=kb_back()
     )
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  👑  ADMIN — ЗАЯВКИ НА ВСТУПЛЕНИЕ
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   👑  ADMIN — ЗАЯВКИ НА ВСТУПЛЕНИЕ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.callback_query(F.data.startswith("app_accept_"))
 async def app_accept(cb: CallbackQuery, bot: Bot):
@@ -809,57 +818,50 @@ async def app_accept(cb: CallbackQuery, bot: Bot):
     if app["referred_by"]:
         await db_add_referral(app["referred_by"], app["user_id"])
 
-    # ── Определяем ссылку на группу которую отправим новому воркеру ──
-    traffer_id   = app["referred_by"]
-    group_for_new = GROUP_LINK  # дефолт
+    # Определяем ссылку на группу для нового воркера
+    traffer_id    = app["referred_by"]
+    group_for_new = GROUP_LINK
 
     if traffer_id:
         traffer = await db_get_worker(traffer_id)
         if traffer and traffer["group_invite"]:
-            # У трафера уже есть персональная ссылка — используем её
             group_for_new = traffer["group_invite"]
         else:
-            # Создаём новую invite-ссылку для трафера
             tname = traffer["full_name"] if traffer else f"id{traffer_id}"
             new_g = await make_group_invite(bot, traffer_id, tname)
             tbot  = f"https://t.me/{BOT_USERNAME}?start=ref_{traffer_id}"
             await db_save_links(traffer_id, tbot, new_g)
             group_for_new = new_g
 
-    # ── Создаём invite-ссылку для нового воркера (он тоже трафер) ──
-    new_bot  = f"https://t.me/{BOT_USERNAME}?start=ref_{app['user_id']}"
-    new_grp  = await make_group_invite(bot, app["user_id"], app["full_name"])
+    # Создаём персональную ссылку для самого нового воркера
+    new_bot = f"https://t.me/{BOT_USERNAME}?start=ref_{app['user_id']}"
+    new_grp = await make_group_invite(bot, app["user_id"], app["full_name"])
     await db_save_links(app["user_id"], new_bot, new_grp)
 
-    # ── Уведомляем нового воркера ──
+    # Уведомляем нового воркера
     await safe_send(bot, app["user_id"],
         text=(
             f'{E["check"]} <b>Заявка принята! Добро пожаловать в команду!</b>\n\n'
-            f'{E["globe"]} Твоя ссылка на группу:\n'
-            f'<code>{group_for_new}</code>\n\n'
+            f'{E["globe"]} Ссылка на группу:\n<code>{group_for_new}</code>\n\n'
             f'{E["down"]} Нажми /start чтобы открыть панель.'
-        ), parse_mode="HTML"
+        )
     )
 
-    # ── Уведомляем трафера ──
+    # Уведомляем трафера
     if traffer_id:
-        tname_display = (
-            f'{app["full_name"]}'
-            + (f' (@{app["username"]})' if app["username"] else "")
-        )
+        tdisp = app["full_name"] + (f' (@{app["username"]})' if app["username"] else "")
         await safe_send(bot, traffer_id,
             text=(
                 f'{E["star"]} <b>Твой реферал принят в команду!</b>\n\n'
-                f'👤 {tname_display}\n'
+                f'👤 {tdisp}\n'
                 f'{E["handshake"]} Теперь он в твоей команде.'
-            ), parse_mode="HTML"
+            )
         )
 
     un = f"@{app['username']}" if app["username"] else app["full_name"]
     await cb.message.edit_text(
         f'{E["check"]} Заявка #{aid} от <b>{un}</b> — ПРИНЯТА\n'
-        f'Воркер получил персональную ссылку на группу.',
-        parse_mode="HTML"
+        f'Воркер получил персональную ссылку на группу.'
     )
 
 @router.callback_query(F.data.startswith("app_reject_"))
@@ -876,18 +878,14 @@ async def app_reject(cb: CallbackQuery, bot: Bot):
 
     await db_update_app(aid, "rejected")
     await safe_send(bot, app["user_id"],
-        text=(
-            f'{E["cross"]} <b>Заявка отклонена.</b>\n\n'
-            f'К сожалению, в этот раз не вышло.'
-        ), parse_mode="HTML"
+        text=f'{E["cross"]} <b>Заявка отклонена.</b>\n\nК сожалению, в этот раз не вышло.'
     )
     un = f"@{app['username']}" if app["username"] else app["full_name"]
     await cb.message.edit_text(
-        f'{E["cross"]} Заявка #{aid} от <b>{un}</b> — ОТКЛОНЕНА',
-        parse_mode="HTML"
+        f'{E["cross"]} Заявка #{aid} от <b>{un}</b> — ОТКЛОНЕНА'
     )
 
-# ─── Выплата: указать цену ────────────────────────
+# ─── Admin: указать сумму продажи ───────────────────────
 
 @router.callback_query(F.data.startswith("set_price_"))
 async def admin_set_price(cb: CallbackQuery, state: FSMContext):
@@ -903,10 +901,9 @@ async def admin_set_price(cb: CallbackQuery, state: FSMContext):
     await cb.message.answer(
         f'{E["dollar"]} <b>Заявка на выплату #{pid}</b>\n\n'
         f'🔖 Код: <code>{p["deal_code"]}</code>\n'
-        f'{E["card"]} Кошелек: <code>{p["wallet"]}</code>\n'
+        f'{E["card"]} Кошелёк: <code>{p["wallet"]}</code>\n'
         f'⚙️ Комиссия: {p["commission_pct"]}%\n\n'
-        f'{E["coin"]} Введи <b>сумму продажи NFT в TON</b>:',
-        parse_mode="HTML"
+        f'{E["coin"]} Введи <b>сумму продажи NFT в TON</b>:'
     )
     await state.set_state(AdminPayState.price)
 
@@ -915,8 +912,10 @@ async def admin_price_input(msg: Message, state: FSMContext):
     if not is_admin(msg.from_user.id): return
     try:
         sale = float(msg.text.strip().replace(",", "."))
+        if sale <= 0:
+            raise ValueError
     except ValueError:
-        await msg.answer(f'{E["warn"]} Введи число. Пример: <b>10.5</b>', parse_mode="HTML")
+        await msg.answer(f'{E["warn"]} Введи положительное число. Пример: <b>10.5</b>')
         return
 
     d      = await state.get_data()
@@ -935,15 +934,15 @@ async def admin_price_input(msg: Message, state: FSMContext):
         f'{E["chart"]} <b>Расчёт выплаты #{pid}</b>\n\n'
         f'👤 Воркер: {wnam}{wun}\n'
         f'🔖 Код: <code>{p["deal_code"]}</code>\n\n'
-        f'{E["dollar"]} Продано за: <b>{sale:.4f} TON</b>\n'
-        f'{E["warn"]} Комиссия ({pct}%): <b>{sale * pct / 100:.4f} TON</b>\n'
+        f'{E["dollar"]} Продано за:         <b>{sale:.4f} TON</b>\n'
+        f'{E["warn"]} Комиссия ({pct}%):  <b>{sale * pct / 100:.4f} TON</b>\n'
         f'{E["coin"]} Выплата воркеру ({100-pct}%): <b>{profit:.4f} TON</b>\n\n'
-        f'{E["card"]} Кошелек: <code>{p["wallet"]}</code>',
-        reply_markup=kb_admin_confirm(pid), parse_mode="HTML"
+        f'{E["card"]} Кошелёк: <code>{p["wallet"]}</code>',
+        reply_markup=kb_admin_confirm(pid)
     )
     await state.clear()
 
-# ─── Подтвердить выплату ──────────────────────────
+# ─── Admin: подтвердить выплату ──────────────────────────
 
 @router.callback_query(F.data.startswith("confirm_pay_"))
 async def confirm_pay(cb: CallbackQuery, bot: Bot):
@@ -958,64 +957,61 @@ async def confirm_pay(cb: CallbackQuery, bot: Bot):
         await cb.answer("Уже выплачено.", show_alert=True); return
 
     await db_complete_payout(pid)
-    # Передаём и профит воркера, и полную сумму продажи (для кассы)
     await db_add_profit(p["worker_id"], p["worker_profit"], p["nft_sale_price"])
 
     w    = await db_get_worker(p["worker_id"])
     wnam = w["full_name"] if w else f"ID:{p['worker_id']}"
     wun  = f" @{w['username']}" if w and w["username"] else ""
 
+    # Уведомление воркеру
     await safe_send(bot, p["worker_id"],
         text=(
             f'{E["star"]} <b>Выплата произведена!</b>\n\n'
             f'🔖 Сделка: <code>{p["deal_code"]}</code>\n'
             f'{E["coin"]} Сумма: <b>{p["worker_profit"]:.4f} TON</b>\n'
-            f'{E["card"]} На кошелек: <code>{p["wallet"]}</code>'
-        ), parse_mode="HTML"
+            f'{E["card"]} На кошелёк: <code>{p["wallet"]}</code>'
+        )
     )
 
+    # Лог в группу
     commission_amount = round(p["nft_sale_price"] * p["commission_pct"] / 100, 6)
-    log = (
+    log_text = (
         f'{E["check"]} <b>Успешная выплата #{pid}</b>\n\n'
-        f'👤 {wnam}{wun} (<code>{p["worker_id"]}</code>)\n'
+        f'👤 {wnam}{wun}  (<code>{p["worker_id"]}</code>)\n'
         f'🔖 Сделка: <code>{p["deal_code"]}</code>\n\n'
-        f'{E["dollar"]} Продано: <b>{p["nft_sale_price"]:.4f} TON</b>\n'
+        f'{E["dollar"]} Продано:              <b>{p["nft_sale_price"]:.4f} TON</b>\n'
         f'{E["warn"]} Комиссия ({p["commission_pct"]}%): <b>{commission_amount:.4f} TON</b>\n'
-        f'{E["coin"]} Выплачено воркеру: <b>{p["worker_profit"]:.4f} TON</b>\n\n'
-        f'{E["card"]} Кошелек: <code>{p["wallet"]}</code>'
+        f'{E["coin"]} Выплачено воркеру:  <b>{p["worker_profit"]:.4f} TON</b>\n\n'
+        f'{E["card"]} Кошелёк: <code>{p["wallet"]}</code>'
     )
-    # Отправляем лог явно в LOG_GROUP_ID (тип int гарантирован)
-    log_chat = int(LOG_GROUP_ID)
     try:
-        await bot.send_message(chat_id=log_chat, text=log, parse_mode="HTML")
-        logger.info(f"[LOG] Выплата #{pid} залогирована в {log_chat}")
+        await bot.send_message(chat_id=int(LOG_GROUP_ID), text=log_text)
+        logger.info(f"[LOG] Выплата #{pid} → {int(LOG_GROUP_ID)}")
     except Exception as e:
-        logger.error(f"[LOG] Ошибка отправки лога в {log_chat}: {e}")
+        logger.error(f"[LOG] Не удалось отправить лог #{pid} в {LOG_GROUP_ID}: {e}")
 
     await cb.message.edit_text(
         f'{E["check"]} <b>Выплата #{pid} подтверждена!</b>\n\n'
         f'{wnam} получил <b>{p["worker_profit"]:.4f} TON</b>\n'
-        f'{E["mega"]} Лог отправлен в группу.',
-        parse_mode="HTML"
+        f'{E["mega"]} Лог отправлен в группу.'
     )
 
 @router.callback_query(F.data.startswith("cancel_pay_"))
 async def cancel_pay(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         await cb.answer("❌ Нет прав.", show_alert=True); return
-    await cb.message.edit_text(f'{E["cross"]} Действие отменено.', parse_mode="HTML")
+    await cb.message.edit_text(f'{E["cross"]} Действие отменено.')
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  👑  ADMIN ПАНЕЛЬ
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   👑  ADMIN ПАНЕЛЬ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.message(Command("admin"))
-async def admin_panel(msg: Message):
+async def cmd_admin(msg: Message):
     if not is_admin(msg.from_user.id): return
     await msg.answer(
-        f'{E["shield"]} <b>Панель администратора</b>\n\n'
-        f'{E["down"]} Выбери действие:',
-        reply_markup=kb_admin_panel(), parse_mode="HTML"
+        f'{E["shield"]} <b>Панель администратора</b>\n\n{E["down"]} Выбери действие:',
+        reply_markup=kb_admin_panel()
     )
 
 @router.callback_query(F.data == "adm_back")
@@ -1024,45 +1020,21 @@ async def adm_back(cb: CallbackQuery):
         await cb.answer("❌ Нет прав.", show_alert=True); return
     await cb.message.edit_text(
         f'{E["shield"]} <b>Панель администратора</b>\n\n{E["down"]} Выбери действие:',
-        reply_markup=kb_admin_panel(), parse_mode="HTML"
-    )
-
-# ─── Статистика ───────────────────────────────────
-
-async def _stats_text():
-    top    = await db_top_workers(10)
-    total  = await db_team_total()    # полная сумма продаж (касса)
-    earned = await db_team_earned()   # суммарный профит воркеров
-    count  = await db_workers_count()
-    lines  = "\n".join(
-        f"{MEDALS[i] if i < len(MEDALS) else i+1}. "
-        f"{w['full_name'] or '?'}"
-        + (f" (@{w['username']})" if w["username"] else "")
-        + f" — {w['total_earned']:.4f} TON"
-        for i, w in enumerate(top)
-    ) or "Нет данных"
-    return (
-        f'{E["chart"]} <b>Статистика команды</b>\n\n'
-        f'{E["dollar"]} Касса (оборот): <b>{total:.4f} TON</b>\n'
-        f'{E["coin"]} Выплачено воркерам: <b>{earned:.4f} TON</b>\n'
-        f'👥 Воркеров: <b>{count}</b>\n\n'
-        f'<b>Топ по профиту:</b>\n{lines}'
+        reply_markup=kb_admin_panel()
     )
 
 @router.callback_query(F.data == "adm_stats")
 async def adm_stats_cb(cb: CallbackQuery):
     if not is_admin(cb.from_user.id):
         await cb.answer("❌ Нет прав.", show_alert=True); return
-    text = await _stats_text()
-    await cb.message.edit_text(text, reply_markup=kb_adm_back(), parse_mode="HTML")
+    await cb.message.edit_text(await _stats_text(), reply_markup=kb_adm_back())
 
 @router.message(Command("stats"))
 async def cmd_stats(msg: Message):
     if not is_admin(msg.from_user.id): return
-    text = await _stats_text()
-    await msg.answer(text, parse_mode="HTML")
+    await msg.answer(await _stats_text())
 
-# ─── Обнулить кассу ───────────────────────────────
+# ─── Обнулить кассу ──────────────────────────────────────
 
 @router.callback_query(F.data == "adm_reset_confirm")
 async def adm_reset_confirm(cb: CallbackQuery):
@@ -1073,12 +1045,12 @@ async def adm_reset_confirm(cb: CallbackQuery):
     count  = await db_workers_count()
     await cb.message.edit_text(
         f'{E["warn"]} <b>Обнулить кассу и топ?</b>\n\n'
-        f'Касса (оборот): <b>{total:.4f} TON</b>\n'
+        f'Касса (оборот):       <b>{total:.4f} TON</b>\n'
         f'Выплачено воркерам: <b>{earned:.4f} TON</b>\n'
-        f'Воркеров в топе: <b>{count}</b>\n\n'
-        f'Воркеры <b>останутся</b>, но весь заработок и касса будут сброшены в 0.\n'
-        f'<b>Это действие нельзя отменить!</b>',
-        reply_markup=kb_reset_confirm(), parse_mode="HTML"
+        f'Воркеров в топе:      <b>{count}</b>\n\n'
+        f'Воркеры <b>останутся</b>, но весь заработок и касса сбросятся в 0.\n'
+        f'<b>Действие необратимо!</b>',
+        reply_markup=kb_reset_confirm()
     )
 
 @router.callback_query(F.data == "adm_reset_do")
@@ -1088,12 +1060,12 @@ async def adm_reset_do(cb: CallbackQuery):
     await db_reset_earnings()
     await cb.message.edit_text(
         f'{E["check"]} <b>Касса обнулена!</b>\n\n'
-        f'Заработок всех воркеров сброшен до 0 TON.\n'
+        f'Заработок всех воркеров сброшен до 0.\n'
         f'Воркеры остались в базе.',
-        reply_markup=kb_adm_back(), parse_mode="HTML"
+        reply_markup=kb_adm_back()
     )
 
-# ─── Полная очистка топа ──────────────────────────
+# ─── Полная очистка топа ─────────────────────────────────
 
 @router.callback_query(F.data == "adm_clear_confirm")
 async def adm_clear_confirm(cb: CallbackQuery):
@@ -1103,9 +1075,9 @@ async def adm_clear_confirm(cb: CallbackQuery):
     await cb.message.edit_text(
         f'{E["warn"]} <b>ПОЛНАЯ ОЧИСТКА ТОПА</b>\n\n'
         f'Будет удалено воркеров: <b>{count}</b>\n\n'
-        f'{E["cross"]} Все данные о воркерах, заработке и invite-ссылках удалятся.\n'
-        f'<b>Это действие необратимо!</b>',
-        reply_markup=kb_clear_confirm(), parse_mode="HTML"
+        f'Все данные о воркерах, заработке и invite-ссылках удалятся.\n'
+        f'<b>Действие необратимо!</b>',
+        reply_markup=kb_clear_confirm()
     )
 
 @router.callback_query(F.data == "adm_clear_do")
@@ -1114,11 +1086,11 @@ async def adm_clear_do(cb: CallbackQuery):
         await cb.answer("❌ Нет прав.", show_alert=True); return
     await db_clear_workers()
     await cb.message.edit_text(
-        f'{E["check"]} <b>Топ воркеров полностью очищен!</b>\n\nБаза воркеров удалена.',
-        reply_markup=kb_adm_back(), parse_mode="HTML"
+        f'{E["check"]} <b>Топ воркеров полностью очищен!</b>\n\nБаза удалена.',
+        reply_markup=kb_adm_back()
     )
 
-# ─── Инфо о комиссии ──────────────────────────────
+# ─── Изменение комиссии ──────────────────────────────────
 
 @router.callback_query(F.data == "adm_comm_info")
 async def adm_comm_info(cb: CallbackQuery):
@@ -1129,35 +1101,33 @@ async def adm_comm_info(cb: CallbackQuery):
         f'Текущая комиссия: <b>{COMMISSION_PCT}%</b>\n\n'
         f'Отправь команду:\n<code>/setcommission 30</code>\n\n'
         f'<i>Применится к новым заявкам на выплату.</i>',
-        reply_markup=kb_adm_back(), parse_mode="HTML"
+        reply_markup=kb_adm_back()
     )
 
-# ─── /setcommission ───────────────────────────────
-
 @router.message(Command("setcommission"))
-async def admin_setcomm(msg: Message):
+async def cmd_setcommission(msg: Message):
     global COMMISSION_PCT
     if not is_admin(msg.from_user.id): return
     parts = msg.text.split()
     if len(parts) < 2:
         await msg.answer(
             f'{E["bulb"]} Текущая комиссия: <b>{COMMISSION_PCT}%</b>\n\n'
-            f'Использование: /setcommission 30', parse_mode="HTML"
+            f'Использование: /setcommission 30'
         )
         return
     try:
         v = int(parts[1])
         assert 0 <= v <= 100
     except (ValueError, AssertionError):
-        await msg.answer(f'{E["warn"]} Введи число от 0 до 100', parse_mode="HTML")
+        await msg.answer(f'{E["warn"]} Введи целое число от 0 до 100')
         return
     COMMISSION_PCT = v
     await msg.answer(
         f'{E["check"]} Комиссия изменена на <b>{v}%</b>\n'
-        f'<i>Применится к новым заявкам.</i>', parse_mode="HTML"
+        f'<i>Применится к новым заявкам.</i>'
     )
 
-# ─── /resettop /resetcash (алиасы) ────────────────
+# ─── /resettop  /resetcash ───────────────────────────────
 
 @router.message(Command(commands=["resettop", "resetcash"]))
 async def cmd_resettop(msg: Message):
@@ -1165,11 +1135,10 @@ async def cmd_resettop(msg: Message):
     await db_reset_earnings()
     await msg.answer(
         f'{E["check"]} <b>Касса обнулена!</b>\n'
-        f'Заработок всех воркеров сброшен до 0.',
-        parse_mode="HTML"
+        f'Заработок всех воркеров сброшен до 0.'
     )
 
-# ─── /cleartop ────────────────────────────────────
+# ─── /cleartop ───────────────────────────────────────────
 
 @router.message(Command("cleartop"))
 async def cmd_cleartop(msg: Message):
@@ -1178,21 +1147,68 @@ async def cmd_cleartop(msg: Message):
     await msg.answer(
         f'{E["warn"]} Воркеров в базе: <b>{count}</b>\n\n'
         f'Для подтверждения используй кнопку в /admin\n'
-        f'→ «🗑 Полностью очистить топ»',
-        parse_mode="HTML"
+        f'→ «🗑 Полностью очистить топ»'
     )
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  ▶️  ЗАПУСК
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   ▶️  ЗАПУСК
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def main():
-    bot = Bot(token=BOT_TOKEN)
-    dp  = Dispatcher(storage=MemoryStorage())
-    dp.include_router(router)
+    # Проверка конфига
+    if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+        logger.critical("❌ Укажи BOT_TOKEN в конфиге!")
+        return
+    if ADMIN_IDS == [123456789]:
+        logger.warning("⚠️  ADMIN_IDS содержит заглушку — укажи свой Telegram ID!")
+    if LOG_GROUP_ID == -1001234567890:
+        logger.warning("⚠️  LOG_GROUP_ID не задан — логи выплат не будут отправляться!")
+
+    # Инициализация БД
     await init_db()
-    logger.info("✅ Bot started!")
-    await dp.start_polling(bot, skip_updates=True)
+    logger.info("✅ База данных инициализирована")
+
+    # Создание бота
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode="HTML")
+    )
+
+    # Проверка токена
+    try:
+        me = await bot.get_me()
+        logger.info(f"✅ Бот запущен: @{me.username}  (id={me.id})")
+    except Exception as e:
+        logger.critical(f"❌ Ошибка подключения к Telegram: {e}")
+        await bot.session.close()
+        return
+
+    # Диспетчер
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(router)
+
+    # Удалить вебхук (на случай если раньше был установлен)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("✅ Вебхук удалён, запускаем long polling")
+    except Exception as e:
+        logger.warning(f"Не удалось удалить вебхук: {e}")
+
+    # Запуск поллинга
+    try:
+        await dp.start_polling(
+            bot,
+            skip_updates=True,
+            allowed_updates=dp.resolve_used_update_types(),
+            close_bot_session=True,
+        )
+    finally:
+        await bot.session.close()
+        logger.info("🛑 Бот остановлен")
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("🛑 Остановлен вручную")
