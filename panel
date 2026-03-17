@@ -1113,19 +1113,20 @@ async def confirm_pay(cb: CallbackQuery, bot: Bot):
     completed_at      = datetime.now().strftime("%d.%m.%Y %H:%M")
 
     # ── FIX: полный и читаемый лог выплаты в группу ──────
+    SEP = "——————————————————————————"
     log_text = (
-        f'{E["check"]} <b>✅ ВЫПЛАТА СОВЕРШЕНА #{pid}</b>\n'
-        f'{'─' * 30}\n\n'
+        f'{E["check"]} <b>ВЫПЛАТА СОВЕРШЕНА #{pid}</b>\n'
+        f'{SEP}\n\n'
         f'👤 <b>Воркер:</b> {wnam}{wun}\n'
         f'🆔 <b>ID:</b> <code>{wid}</code>\n\n'
         f'🔖 <b>Код сделки:</b> <code>{p["deal_code"]}</code>\n'
         f'🖼 <b>NFT ссылки:</b>\n{p["nft_links"]}\n\n'
-        f'{'─' * 30}\n'
+        f'{SEP}\n'
         f'{E["dollar"]} <b>Сумма продажи:</b>     <b>{p["nft_sale_price"]:.4f} TON</b>\n'
         f'{E["warn"]} <b>Комиссия ({p["commission_pct"]}%):</b>    '
         f'<b>{commission_amount:.4f} TON</b>\n'
         f'{E["coin"]} <b>Выплачено воркеру:</b> <b>{p["worker_profit"]:.4f} TON</b>\n'
-        f'{'─' * 30}\n\n'
+        f'{SEP}\n\n'
         f'{E["card"]} <b>Кошелёк:</b> <code>{p["wallet"]}</code>\n'
         f'{E["timer"]} <b>Дата выплаты:</b> {completed_at}'
     )
