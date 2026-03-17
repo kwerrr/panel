@@ -36,10 +36,24 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN      = "8384235923:AAE41DUjvsfumFr3ttMOeIOLzTEHKLDQDko"
 ADMIN_IDS      = [8418455492]
 LOG_GROUP_ID   = -1003870818645
+# ID раздела (топика) в группе для логов выплат.
+# Открой нужный топик → скопируй число из ссылки t.me/c/xxx/yyy → вставь yyy.
+# Если топики не используются — поставь None
+LOG_THREAD_ID  = 5
 INVITE_CHAT_ID = -1003870818645
 GROUP_LINK     = "https://t.me/c/3870818645/5"
 BOT_USERNAME   = "KwerPanelBot"
 DB_PATH        = "workers.db"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   📢  ОБЯЗАТЕЛЬНАЯ ПОДПИСКА НА КАНАЛ
+#   Меняй только CHANNEL_ID и CHANNEL_LINK
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# ID канала (для проверки подписки): @username или -100xxxxxxxxxx
+CHANNEL_ID   = "@kwerhub"
+# Ссылка на канал (отображается пользователю)
+CHANNEL_LINK = "https://t.me/kwerhub"
 
 # Комиссия хранится в БД, не в глобальной переменной — не сбрасывается при рестарте
 DEFAULT_COMMISSION_PCT = 25
@@ -318,6 +332,27 @@ async def db_add_referral(referrer_id: int, referred_id: int):
         await db.commit()
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#   📢  ПРОВЕРКА ПОДПИСКИ НА КАНАЛ
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async def check_subscription(bot: Bot, user_id: int) -> bool:
+    """Проверяет, подписан ли пользователь на CHANNEL_ID."""
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        return member.status not in ("left", "kicked", "banned")
+    except Exception as e:
+        logger.warning(f"[sub_check] uid={user_id}: {e}")
+        # Если проверить не удалось — пропускаем (не блокируем пользователя)
+        return True
+
+def kb_subscribe():
+    """Клавиатура с кнопкой подписки и кнопкой «Проверить»."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Подписаться на канал", url=CHANNEL_LINK)],
+        [InlineKeyboardButton(text="✅ Я подписался", callback_data="check_sub")],
+    ])
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #   🔗  ПЕРСОНАЛЬНАЯ INVITE-ССЫЛКА
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -428,7 +463,7 @@ class PayState(StatesGroup):
     screens = State()
     nft     = State()
     wallet  = State()
-    confirm = State()   # FIX: отдельное состояние для подтверждения
+    confirm = State()
 
 class AdminPayState(StatesGroup):
     price = State()
@@ -476,46 +511,88 @@ async def _stats_text() -> str:
 
 router = Router()
 
+# ─── Проверка подписки (callback «Я подписался») ─────────
+
+@router.callback_query(F.data == "check_sub")
+async def cb_check_sub(cb: CallbackQuery, state: FSMContext, bot: Bot):
+    uid = cb.from_user.id
+    if not await check_subscription(bot, uid):
+        await cb.answer("❌ Ты ещё не подписался на канал!", show_alert=True)
+        return
+    # Подписка подтверждена — продолжаем как в /start
+    await cb.answer("✅ Подписка подтверждена!")
+    await _start_flow(cb.message, state, uid, cb.from_user, edit=True)
+
 # ─── /start ─────────────────────────────────────────────
 
 @router.message(CommandStart())
-async def cmd_start(msg: Message, state: FSMContext):
-    await state.clear()   # FIX: сбрасываем любое висящее состояние
+async def cmd_start(msg: Message, state: FSMContext, bot: Bot):
+    await state.clear()
     uid  = msg.from_user.id
     args = msg.text.split()
     ref  = None
     if len(args) > 1 and args[1].startswith("ref_"):
         try:
             ref = int(args[1][4:])
-            if ref == uid:      # FIX: нельзя рефералить самого себя
+            if ref == uid:
                 ref = None
         except ValueError:
             pass
 
+    # Сохраняем реферала до проверки подписки
+    await state.update_data(ref=ref)
+
+    # Проверка подписки
+    if not await check_subscription(bot, uid):
+        await msg.answer(
+            f'{E["mega"]} <b>Для использования бота необходимо подписаться на наш канал!</b>\n\n'
+            f'{E["down"]} Подпишись и нажми кнопку «Я подписался»:',
+            reply_markup=kb_subscribe()
+        )
+        return
+
+    await _start_flow(msg, state, uid, msg.from_user, edit=False)
+
+
+async def _start_flow(msg_or_message, state: FSMContext, uid: int, user, edit: bool = False):
+    """Основная логика после прохождения проверки подписки."""
+    d   = await state.get_data()
+    ref = d.get("ref")
+
     worker = await db_get_worker(uid)
     if worker and worker["is_approved"]:
-        await msg.answer(
-            f'{E["wave"]} <b>С возвращением, {msg.from_user.first_name}!</b>\n\n'
-            f'{E["down"]} Выбери действие:',
-            reply_markup=kb_main()
+        text = (
+            f'{E["wave"]} <b>С возвращением, {user.first_name}!</b>\n\n'
+            f'{E["down"]} Выбери действие:'
         )
+        if edit:
+            await msg_or_message.edit_text(text, reply_markup=kb_main())
+        else:
+            await msg_or_message.answer(text, reply_markup=kb_main())
         return
 
     pending = await db_pending_app(uid)
     if pending:
-        await msg.answer(
+        text = (
             f'{E["timer"]} <b>Заявка уже на рассмотрении.</b>\n\n'
             f'Ожидай решения администрации.'
         )
+        if edit:
+            await msg_or_message.edit_text(text)
+        else:
+            await msg_or_message.answer(text)
         return
 
     await state.update_data(ref=ref)
-    await msg.answer(
+    text = (
         f'{E["wave"]} <b>Добро пожаловать!</b>\n\n'
         f'{E["shield"]} Для доступа нужно пройти короткую анкету.\n\n'
-        f'{E["question"]} <b>Вопрос 1/3:</b> Есть ли у тебя опыт в скаме?',
-        reply_markup=kb_experience()
+        f'{E["question"]} <b>Вопрос 1/3:</b> Есть ли у тебя опыт в скаме?'
     )
+    if edit:
+        await msg_or_message.edit_text(text, reply_markup=kb_experience())
+    else:
+        await msg_or_message.answer(text, reply_markup=kb_experience())
     await state.set_state(AppState.exp)
 
 # ─── Анкета ─────────────────────────────────────────────
@@ -561,16 +638,28 @@ async def app_found(msg: Message, state: FSMContext, bot: Bot):
     )
 
     exp_label = f'{E["check"]} Да' if d.get("has_exp") else f'{E["cross"]} Нет'
+
+    # ── FIX: отображаем @username трафера вместо ID ──────
+    ref_line = ""
+    if d.get("ref"):
+        traffer = await db_get_worker(d["ref"])
+        if traffer and traffer["username"]:
+            ref_display = f"@{traffer['username']}"
+        elif traffer and traffer["full_name"]:
+            ref_display = f"{traffer['full_name']} (id{d['ref']})"
+        else:
+            ref_display = f"id{d['ref']}"
+        ref_line = f'\n{E["handshake"]} Реферал от: {ref_display}'
+
     admin_txt = (
         f'{E["bell"]} <b>Новая заявка #{aid}</b>\n\n'
         f'👤 {user.full_name}  ({un})\n'
         f'🆔 <code>{user.id}</code>\n\n'
         f'1️⃣ Опыт в скаме:  {exp_label}\n'
         f'2️⃣ Часов в день:  {d.get("hours")}\n'
-        f'3️⃣ Откуда узнал:  {msg.text.strip()}\n'
+        f'3️⃣ Откуда узнал:  {msg.text.strip()}'
+        f'{ref_line}'
     )
-    if d.get("ref"):
-        admin_txt += f'\n{E["handshake"]} Реферал от: <code>{d["ref"]}</code>'
 
     for adm in ADMIN_IDS:
         await safe_send(bot, adm, text=admin_txt, reply_markup=kb_admin_app(aid))
@@ -586,7 +675,7 @@ async def app_found(msg: Message, state: FSMContext, bot: Bot):
 
 @router.callback_query(F.data == "main_menu")
 async def main_menu(cb: CallbackQuery, state: FSMContext):
-    await state.clear()   # FIX: сбрасываем FSM при возврате в меню
+    await state.clear()
     await cb.message.edit_text(
         f'{E["globe"]} <b>Главное меню</b>\n\n{E["down"]} Выбери действие:',
         reply_markup=kb_main()
@@ -715,10 +804,8 @@ async def payout_wallet(msg: Message, state: FSMContext):
         f'<i>{E["coin2"]} Выплата: {100 - comm}% от суммы продажи</i>',
         reply_markup=kb_payout_confirm()
     )
-    # FIX: переходим в отдельное состояние confirm, чтобы callback корректно матчился
     await state.set_state(PayState.confirm)
 
-# FIX: теперь хэндлер привязан к PayState.confirm, а не к PayState.wallet
 @router.callback_query(PayState.confirm, F.data == "payout_submit")
 async def payout_submit(cb: CallbackQuery, state: FSMContext, bot: Bot):
     d    = await state.get_data()
@@ -771,7 +858,6 @@ async def payout_submit(cb: CallbackQuery, state: FSMContext, bot: Bot):
     await state.clear()
     await cb.answer()
 
-# FIX: обработка нажатия «Главное меню» в состоянии confirm
 @router.callback_query(PayState.confirm, F.data == "main_menu")
 async def payout_cancel_to_menu(cb: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -860,7 +946,6 @@ async def app_accept(cb: CallbackQuery, bot: Bot):
     if app["status"] != "pending":
         await cb.answer("Уже обработана.", show_alert=True); return
 
-    # FIX: сначала обновляем статус (защита от двойного нажатия)
     await db_update_app(aid, "accepted")
     await db_add_worker(app["user_id"], app["username"], app["full_name"], app["referred_by"])
 
@@ -1003,8 +1088,6 @@ async def confirm_pay(cb: CallbackQuery, bot: Bot):
         await cb.answer("Заявка не найдена.", show_alert=True); return
     if p["status"] == "completed":
         await cb.answer("Уже выплачено.", show_alert=True); return
-
-    # FIX: проверяем что цена была выставлена перед подтверждением
     if not p["nft_sale_price"]:
         await cb.answer("⚠️ Сначала укажи сумму продажи!", show_alert=True); return
 
@@ -1014,8 +1097,10 @@ async def confirm_pay(cb: CallbackQuery, bot: Bot):
     w    = await db_get_worker(p["worker_id"])
     wnam = w["full_name"] if w else f"ID:{p['worker_id']}"
     wun  = f" @{w['username']}" if w and w["username"] else ""
+    wid  = p["worker_id"]
 
-    await safe_send(bot, p["worker_id"],
+    # Уведомление воркеру
+    await safe_send(bot, wid,
         text=(
             f'{E["star"]} <b>Выплата произведена!</b>\n\n'
             f'🔖 Сделка: <code>{p["deal_code"]}</code>\n'
@@ -1025,18 +1110,34 @@ async def confirm_pay(cb: CallbackQuery, bot: Bot):
     )
 
     commission_amount = round(p["nft_sale_price"] * p["commission_pct"] / 100, 6)
+    completed_at      = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    # ── FIX: полный и читаемый лог выплаты в группу ──────
     log_text = (
-        f'{E["check"]} <b>Успешная выплата #{pid}</b>\n\n'
-        f'👤 {wnam}{wun}  (<code>{p["worker_id"]}</code>)\n'
-        f'🔖 Сделка: <code>{p["deal_code"]}</code>\n\n'
-        f'{E["dollar"]} Продано:              <b>{p["nft_sale_price"]:.4f} TON</b>\n'
-        f'{E["warn"]} Комиссия ({p["commission_pct"]}%): <b>{commission_amount:.4f} TON</b>\n'
-        f'{E["coin"]} Выплачено воркеру:  <b>{p["worker_profit"]:.4f} TON</b>\n\n'
-        f'{E["card"]} Кошелёк: <code>{p["wallet"]}</code>'
+        f'{E["check"]} <b>✅ ВЫПЛАТА СОВЕРШЕНА #{pid}</b>\n'
+        f'{'─' * 30}\n\n'
+        f'👤 <b>Воркер:</b> {wnam}{wun}\n'
+        f'🆔 <b>ID:</b> <code>{wid}</code>\n\n'
+        f'🔖 <b>Код сделки:</b> <code>{p["deal_code"]}</code>\n'
+        f'🖼 <b>NFT ссылки:</b>\n{p["nft_links"]}\n\n'
+        f'{'─' * 30}\n'
+        f'{E["dollar"]} <b>Сумма продажи:</b>     <b>{p["nft_sale_price"]:.4f} TON</b>\n'
+        f'{E["warn"]} <b>Комиссия ({p["commission_pct"]}%):</b>    '
+        f'<b>{commission_amount:.4f} TON</b>\n'
+        f'{E["coin"]} <b>Выплачено воркеру:</b> <b>{p["worker_profit"]:.4f} TON</b>\n'
+        f'{'─' * 30}\n\n'
+        f'{E["card"]} <b>Кошелёк:</b> <code>{p["wallet"]}</code>\n'
+        f'{E["timer"]} <b>Дата выплаты:</b> {completed_at}'
     )
+
+    # Отправляем только текстовый лог в нужный раздел группы
     try:
-        await bot.send_message(chat_id=LOG_GROUP_ID, text=log_text)
-        logger.info(f"[LOG] Выплата #{pid} → {LOG_GROUP_ID}")
+        await bot.send_message(
+            chat_id=LOG_GROUP_ID,
+            text=log_text,
+            message_thread_id=LOG_THREAD_ID,   # None — без топика, число — конкретный раздел
+        )
+        logger.info(f"[LOG] Выплата #{pid} → {LOG_GROUP_ID} thread={LOG_THREAD_ID}")
     except Exception as e:
         logger.error(f"[LOG] Не удалось отправить лог #{pid} в {LOG_GROUP_ID}: {e}")
 
@@ -1181,7 +1282,6 @@ async def cmd_setcommission(msg: Message):
     except (ValueError, AssertionError):
         await msg.answer(f'{E["warn"]} Введи целое число от 0 до 100')
         return
-    # FIX: сохраняем в БД, не в глобальную переменную
     await db_set_commission(v)
     await msg.answer(
         f'{E["check"]} Комиссия изменена на <b>{v}%</b>\n'
@@ -1223,6 +1323,8 @@ async def main():
         logger.warning("⚠️  ADMIN_IDS содержит заглушку — укажи свой Telegram ID!")
     if LOG_GROUP_ID == -1001234567890:
         logger.warning("⚠️  LOG_GROUP_ID не задан — логи выплат не будут отправляться!")
+    if CHANNEL_ID == "@your_channel":
+        logger.warning("⚠️  CHANNEL_ID не задан — проверка подписки отключена!")
 
     await init_db()
     logger.info("✅ База данных инициализирована")
